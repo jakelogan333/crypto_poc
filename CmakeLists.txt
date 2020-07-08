@@ -1,0 +1,37 @@
+CMAKE_MINIMUM_REQUIRED(VERSION 3.16)
+
+PROJECT(crypto LANGUAGES C)
+
+add_definitions(-DUNICODE)
+
+set(KEYGEN_SOURCES
+    src/keygen.c
+)
+
+set(CLIENT_SOURCES
+    src/client.c
+    src/client_resource.rc
+    include/client_resource.h
+)
+
+set(SERVER_SOURCES
+    src/server.c
+    src/server_resource.rc
+    include/server_resource.h
+)
+
+add_executable(keygen
+   ${KEYGEN_SOURCES}
+)
+
+add_executable(client
+   ${CLIENT_SOURCES}
+)
+
+add_executable(server
+   ${SERVER_SOURCES}
+)
+
+include_directories(include)
+target_link_libraries(client ws2_32 Shlwapi)
+target_link_libraries(server ws2_32 Shlwapi)
