@@ -14,6 +14,9 @@
 #include <ntstatus.h>
 #include <bcrypt.h>
 
+#define RAND_SIZE 128
+#define CIPHER_SIZE 256
+
 INT wmain(INT argc,  WCHAR *argv[])
 {
     DWORD dwRetVal = EXIT_SUCCESS;
@@ -26,7 +29,7 @@ INT wmain(INT argc,  WCHAR *argv[])
     NTSTATUS ntRetVal = EXIT_SUCCESS;
     BCRYPT_ALG_HANDLE hProvider = NULL;
     BCRYPT_KEY_HANDLE hPublicKey = NULL;
-    PBYTE pDecryptedText = NULL;
+    PBYTE pEncryptedRand = NULL;
 
     if (argc != 3)
     {
@@ -34,7 +37,7 @@ INT wmain(INT argc,  WCHAR *argv[])
         goto end;
     }
 
-    // Lets get a pointer to our public key
+    // Lets load our private key from our resource
     hResLoc = FindResourceW(NULL, MAKEINTRESOURCEW(IDR_RCDATA1), RT_RCDATA);
     if (NULL == hResLoc)
     {
@@ -57,8 +60,34 @@ INT wmain(INT argc,  WCHAR *argv[])
         wprintf(L"Error getting resource data\n");
         goto end;
     }
-    wprintf(L"Debug: %p\n", pPublicKey);
 
+    // Initialize our crypto and import our key
+    ntRetVal = BCryptOpenAlgorithmProvider(&hProvider, BCRYPT_RSA_ALGORITHM, NULL, 0);
+    
+    if (STATUS_SUCCESS != ntRetVal)
+    {
+        wprintf(L"Error opening algo\n");
+        goto end;
+    }
+
+    ntRetVal = BCryptImportKeyPair(
+        hProvider,
+        NULL,
+        BCRYPT_RSAPUBLIC_BLOB,
+        &hPublicKey,
+        pPublicKey,
+        dwResSize,
+        BCRYPT_NO_KEY_VALIDATION
+    );
+
+    if (STATUS_SUCCESS != ntRetVal)
+    {
+        wprintf(L"Error loading public key %u\n", ntRetVal);
+        goto end;
+    }
+
+
+    // Initialize our socket and establish a connection
     WSAStartup(MAKEWORD(2, 2), &wsadata);
 
     sock = WSASocketW(AF_INET, SOCK_STREAM, IPPROTO_TCP, NULL, 0, 0);
@@ -69,7 +98,7 @@ INT wmain(INT argc,  WCHAR *argv[])
         goto end;
     }
 
-    // StrToInt is not very fault tolerant but easier than strtol
+    // Validate our port is within usable range
     DWORD dwPort = StrToIntW(argv[2]);
 
     if (dwPort < 1 || dwPort > 65535)
@@ -90,7 +119,7 @@ INT wmain(INT argc,  WCHAR *argv[])
         goto end;
     }
 
-    // Initiate a single connection
+    // Initiate a single connection and recieve random bytes
     dwRetVal = WSAConnect(sock, (SOCKADDR *) &addr, sizeof(SOCKADDR_IN), NULL, NULL, NULL, NULL);
     if (SOCKET_ERROR == dwRetVal)
     {
@@ -99,8 +128,14 @@ INT wmain(INT argc,  WCHAR *argv[])
     }
 
     WSABUF buf = {0};
-    buf.len = 1024;
-    buf.buf = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, 1024);
+    buf.len = RAND_SIZE;
+    buf.buf = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, RAND_SIZE);
+    if (NULL == buf.buf)
+    {
+        wprintf(L"Error allocating memory\n");
+        goto end;
+    }
+
     DWORD dwBytesRecv = 0;
     DWORD dwFlags = 0;
 
@@ -108,40 +143,24 @@ INT wmain(INT argc,  WCHAR *argv[])
 
     wprintf(L"Bytes received %d\n", dwBytesRecv);
 
-    ntRetVal = BCryptOpenAlgorithmProvider(&hProvider, BCRYPT_RSA_ALGORITHM, NULL, 0);
-    
-    if (STATUS_SUCCESS != ntRetVal)
+    wprintf(L"Random bytes unencrypted\n");
+    for(int i = 0; i < dwBytesRecv; i++)
     {
-        wprintf(L"Error opening algo\n");
-        goto end;
-    }
-
-    ntRetVal = BCryptImportKeyPair(
-        hProvider,
-        NULL,
-        BCRYPT_RSAPUBLIC_BLOB,
-        &hPublicKey,
-        pPublicKey,
-        dwResSize,
-        0
-    );
-
-    if (STATUS_SUCCESS != ntRetVal)
-    {
-        wprintf(L"Error loading public key %u\n", ntRetVal);
-        goto end;
+        wprintf(L"%02hhx", buf.buf[i]);
     }
 
     DWORD dwSizeNeeded = 0;
+    DWORD dwBytesEncrypted = 0;
     BCRYPT_OAEP_PADDING_INFO padding = {0};
     padding.pszAlgId = BCRYPT_SHA1_ALGORITHM;
     padding.pbLabel = NULL;
     padding.cbLabel = 0;
 
-    ntRetVal = BCryptDecrypt(
+     // Get the size of buffer required
+    ntRetVal = BCryptEncrypt(
         hPublicKey,
         buf.buf,
-        dwBytesRecv,
+        RAND_SIZE,
         &padding,
         NULL,
         0,
@@ -151,48 +170,47 @@ INT wmain(INT argc,  WCHAR *argv[])
         BCRYPT_PAD_OAEP
     );
 
-    wprintf(L"Size needed: %d:%u\n", dwSizeNeeded, ntRetVal);
+    wprintf(L"\nSize needed: %d\n", dwSizeNeeded);
 
-
-pDecryptedText = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, dwSizeNeeded);
-    if (NULL == pDecryptedText)
+    pEncryptedRand = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, dwSizeNeeded);
+    if (NULL == pEncryptedRand)
     {
         wprintf(L"Error allocating memory\n");
         goto end;
     }
 
-DWORD dwBytesDecrypted = 0;
-
-    ntRetVal = BCryptDecrypt(
+    ntRetVal = BCryptEncrypt(
         hPublicKey,
         buf.buf,
-        dwBytesRecv,
+        RAND_SIZE,
         &padding,
         NULL,
         0,
-        pDecryptedText,
+        pEncryptedRand,
         dwSizeNeeded,
-        &dwBytesDecrypted,
+        &dwBytesEncrypted,
         BCRYPT_PAD_OAEP
     );
-    
-    if (STATUS_SUCCESS != ntRetVal)
+
+    wprintf(L"\nEncrypted bytes\n");
+    for(int i = 0; i < dwBytesEncrypted; i++)
     {
-        wprintf(L"Error decrypting data %u\n", ntRetVal);
-        goto end;
+        wprintf(L"%02hhx", pEncryptedRand[i]);
+    }
+    wprintf(L"WTF\n");
+    // Free previous buffer with unencrypted random numbers
+    if (NULL != buf.buf)
+    {
+        HeapFree(GetProcessHeap(), 0, buf.buf);
+        buf.buf = NULL;
     }
 
-    wprintf(L"Cipher text\n");
-    for(int i = 0; i < dwBytesRecv; i++)
-    {
-        wprintf(L"%hhx", buf.buf[i]);
-    }
+    buf.len = dwBytesEncrypted;
+    buf.buf = pEncryptedRand;
+    DWORD dwBytesSent = 0;
 
-    wprintf(L"\nDecrypted %d bytes\n", dwBytesDecrypted);
-    for(int i = 0; i < dwBytesRecv; i++)
-    {
-        wprintf(L"%hhx", pDecryptedText[i]);
-    }
+    WSASend(sock, &buf, 1, &dwBytesSent, 0, NULL, NULL);
+    wprintf(L"\nBytes sent: %d\n", dwBytesSent);
 
 end:
     return dwRetVal;

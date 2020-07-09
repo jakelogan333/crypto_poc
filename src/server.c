@@ -14,7 +14,8 @@
 #include <ntstatus.h>
 #include <bcrypt.h>
 
-#define BUF_SIZE 100
+#define RAND_SIZE 128
+#define CIPHER_SIZE 256
 
 DWORD handle_conn(LPVOID param);
 
@@ -27,11 +28,14 @@ INT wmain(INT argc,  WCHAR *argv[])
     HGLOBAL hResource = NULL;
     NTSTATUS ntRetVal = EXIT_SUCCESS;
     BCRYPT_ALG_HANDLE hProvider = NULL;
+    BCRYPT_ALG_HANDLE hRandProvider = NULL;
     DWORD dwResSize = 0;
     PBYTE pPrivateKey = NULL;
     BCRYPT_KEY_HANDLE hPrivateKey = NULL;
-    UCHAR pPlainText[BUF_SIZE] = "Hello Encryption";
+    UCHAR pPlainText[256] = {0x00, 0x01, 0x02, 0x03};
     PBYTE pEncryptedText = NULL;
+    PBYTE pRand = NULL;
+    PBYTE pDecryptedText = NULL;
 
     if (argc != 3)
     {
@@ -39,7 +43,7 @@ INT wmain(INT argc,  WCHAR *argv[])
         goto end;
     }
 
-    // Lets get a pointer to our private key
+    // Lets load our private key from our resource
     hResLoc = FindResourceW(NULL, MAKEINTRESOURCEW(IDR_RCDATA1), RT_RCDATA);
     if (NULL == hResLoc)
     {
@@ -64,8 +68,7 @@ INT wmain(INT argc,  WCHAR *argv[])
     }
     wprintf(L"Debug: %p:%d\n", pPrivateKey, dwResSize);
 
-    // TODO initialize crypto
-
+    // Initialize our crypto and import our key
     ntRetVal = BCryptOpenAlgorithmProvider(&hProvider, BCRYPT_RSA_ALGORITHM, NULL, 0);
     
     if (STATUS_SUCCESS != ntRetVal)
@@ -81,7 +84,7 @@ INT wmain(INT argc,  WCHAR *argv[])
         &hPrivateKey,
         pPrivateKey,
         dwResSize,
-        0
+        BCRYPT_NO_KEY_VALIDATION
     );
 
     if (STATUS_SUCCESS != ntRetVal)
@@ -90,67 +93,7 @@ INT wmain(INT argc,  WCHAR *argv[])
         goto end;
     }
 
-    DWORD dwBytesEncrypted = 0;
-    DWORD dwSizeNeeded = 0;
-    BCRYPT_OAEP_PADDING_INFO padding = {0};
-    padding.pszAlgId = BCRYPT_SHA1_ALGORITHM;
-    padding.pbLabel = NULL;
-    padding.cbLabel = 0;
-
-    // Get the size of buffer required
-    ntRetVal = BCryptEncrypt(
-        hPrivateKey,
-        pPlainText,
-        BUF_SIZE,
-        &padding,
-        NULL,
-        0,
-        NULL,
-        0,
-        &dwSizeNeeded,
-        BCRYPT_PAD_OAEP
-    );
-
-    wprintf(L"Size needed: %d\n", dwSizeNeeded);
-
-    pEncryptedText = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, dwSizeNeeded);
-    if (NULL == pEncryptedText)
-    {
-        wprintf(L"Error allocating memory\n");
-        goto end;
-    }
-
-    ntRetVal = BCryptEncrypt(
-        hPrivateKey,
-        pPlainText,
-        BUF_SIZE,
-        &padding,
-        NULL,
-        0,
-        pEncryptedText,
-        dwSizeNeeded,
-        &dwBytesEncrypted,
-        BCRYPT_PAD_OAEP
-    );
-
-    if (STATUS_SUCCESS != ntRetVal)
-    {
-        wprintf(L"Error encrypting data %u\n", ntRetVal);
-        goto end;
-    }
-
-    wprintf(L"Plaintext\n");
-    for(int i = 0; i < BUF_SIZE; i++)
-    {
-        wprintf(L"%hhx", pPlainText[i]);
-    }
-
-    wprintf(L"\nEncrypted %d bytes\n", dwBytesEncrypted);
-    for(int i = 0; i < dwSizeNeeded; i++)
-    {
-        wprintf(L"%02hhx", pEncryptedText[i]);
-    }
-
+// Initialize our socket and wait for a connection
     WSAStartup(MAKEWORD(2, 2), &wsadata);
 
     sock = WSASocketW(AF_INET, SOCK_STREAM, IPPROTO_TCP, NULL, 0, 0);
@@ -161,7 +104,7 @@ INT wmain(INT argc,  WCHAR *argv[])
         goto end;
     }
     
-    // StrToInt is not very fault tolerant but easier than strtol
+    // Validate our port is within usable range
     DWORD dwPort = StrToIntW(argv[2]);
 
     if (dwPort < 1 || dwPort > 65535)
@@ -203,15 +146,129 @@ INT wmain(INT argc,  WCHAR *argv[])
 
     conn = WSAAccept(sock, (SOCKADDR *) &conn_addr, &dwAddrLen, NULL, 0);
 
+    // Lets generate our random data
     WSABUF buf = {0};
+    buf.len = RAND_SIZE;
+    pRand = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, RAND_SIZE);
+    if (NULL == pRand)
+    {
+        wprintf(L"Error allocating memory\n");
+        goto end;
+    }
 
-    buf.len = dwBytesEncrypted;
-    buf.buf = pEncryptedText;
+    ntRetVal = BCryptGenRandom(
+        NULL,
+        pRand,
+        RAND_SIZE,
+        BCRYPT_USE_SYSTEM_PREFERRED_RNG
+    );
+
+    if (STATUS_SUCCESS != ntRetVal)
+    {
+        wprintf(L"Error generating random numbers\n");
+        goto end;
+    }
+
+    buf.buf = pRand;
+
     DWORD dwBytesSent = 0;
 
     WSASend(conn, &buf, 1, &dwBytesSent, 0, NULL, NULL);
 
     wprintf(L"\nBytes sent: %d\n", dwBytesSent);
+    for(int i = 0; i < RAND_SIZE; i++)
+    {
+        wprintf(L"%02hhx", buf.buf[i]);
+    }
+
+    DWORD dwBytesRecv = 0;
+    DWORD dwFlags = 0;
+    buf.len = CIPHER_SIZE;
+    buf.buf = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, CIPHER_SIZE);
+    if (NULL == buf.buf)
+    {
+        wprintf(L"Error allocating memory\n");
+        goto end;
+    }
+
+    WSARecv(conn, &buf, 1, &dwBytesRecv, &dwFlags, NULL, NULL);
+
+    wprintf(L"\nCipher bytes received: %d\n", dwBytesRecv);
+    wprintf(L"Cipher text\n");
+    for(int i = 0; i < CIPHER_SIZE; i++)
+    {
+        wprintf(L"%02hhx", buf.buf[i]);
+    }
+
+    DWORD dwSizeNeeded = 0;
+    DWORD dwBytesEncrypted = 0;
+    BCRYPT_OAEP_PADDING_INFO padding = {0};
+    padding.pszAlgId = BCRYPT_SHA1_ALGORITHM;
+    padding.pbLabel = NULL;
+    padding.cbLabel = 0;
+
+    ntRetVal = BCryptDecrypt(
+        hPrivateKey,
+        buf.buf,
+        dwBytesRecv,
+        &padding,
+        NULL,
+        0,
+        NULL,
+        0,
+        &dwSizeNeeded,
+        BCRYPT_PAD_OAEP
+    );
+
+    wprintf(L"\nSize needed: %d:%u\n", dwSizeNeeded, ntRetVal);
+
+
+    pDecryptedText = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, dwSizeNeeded);
+    if (NULL == pDecryptedText)
+    {
+        wprintf(L"Error allocating memory\n");
+        goto end;
+    }
+
+DWORD dwBytesDecrypted = 0;
+
+ntRetVal = BCryptDecrypt(
+    hPrivateKey,
+    buf.buf,
+    dwBytesRecv,
+    &padding,
+    NULL,
+    0,
+    pDecryptedText,
+    dwSizeNeeded,
+    &dwBytesDecrypted,
+    BCRYPT_PAD_OAEP
+    );
+
+    wprintf(L"Decryptred Cipher text\n");
+    for(int i = 0; i < dwBytesDecrypted; i++)
+    {
+        wprintf(L"%02hhx", pDecryptedText[i]);
+    }
+
+    BOOL bDecryptionMatch = TRUE;
+
+    for (INT i = 0; i < RAND_SIZE; i++)
+    {
+        if (pDecryptedText[i] != pRand[i])
+        {
+            bDecryptionMatch = FALSE;
+            break;
+        }
+    }
+
+    if (FALSE == bDecryptionMatch)
+    {
+        wprintf("\nKeys do not match\n");
+        goto end;
+    }
+
+
 
 end:
     if (sock != INVALID_SOCKET)
@@ -221,4 +278,3 @@ end:
 
     return dwRetVal;
 }
-
