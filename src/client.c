@@ -36,6 +36,7 @@ INT wmain(INT argc,  WCHAR *argv[])
     PBYTE pRandBytes = NULL;
     PBYTE pKeyObject = NULL;
     PBYTE pRandKey = NULL;
+    PBYTE pSymmetricKey = NULL;
 
     if (argc != 3)
     {
@@ -242,7 +243,7 @@ INT wmain(INT argc,  WCHAR *argv[])
 
     wprintf(L"Object Length: %d\n", dwObjectLength);
 
-    pKeyObject = HeapAlloc(GetAcceptLanguages, HEAP_ZERO_MEMORY, dwObjectLength);
+    pKeyObject = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, dwObjectLength);
     if (NULL == pKeyObject)
     {
         wprintf(L"Error allocating memory\n");
@@ -280,6 +281,52 @@ INT wmain(INT argc,  WCHAR *argv[])
         goto end;
     }
 
+    ntRetVal = BCryptExportKey(
+        hSymmetricKey,
+        NULL,
+        BCRYPT_KEY_DATA_BLOB,
+        NULL,
+        0,
+        &dwSizeNeeded,
+        0
+    );
+
+    if (STATUS_SUCCESS != ntRetVal)
+    {
+        wprintf(L"Error getting symmetric key size\n");
+        goto end;
+    }
+
+    pSymmetricKey = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, dwSizeNeeded);
+    if (NULL == pSymmetricKey)
+    {
+        wprintf(L"Error allocating memory\n");
+        goto end;
+    }
+
+    DWORD dwKeySize = 0;
+
+    ntRetVal = BCryptExportKey(
+        hSymmetricKey,
+        NULL,
+        BCRYPT_KEY_DATA_BLOB,
+        pSymmetricKey,
+        dwSizeNeeded,
+        &dwKeySize,
+        0
+    );
+
+    if (STATUS_SUCCESS != ntRetVal)
+    {
+        wprintf(L"Error exporting symmetric key\n");
+        goto end;
+    }
+
+    wprintf(L"\nSymmetric key\n", dwBytesSent);
+    for(int i = 0; i < dwKeySize; i++)
+    {
+        wprintf(L"%02hhx", pSymmetricKey[i]);
+    }
     // TODO Encrypt symmetric key and send to server
     // TODO validate symmetric key works
 
@@ -328,6 +375,12 @@ end:
     {
         HeapFree(GetProcessHeap(), 0, pRandKey);
         pRandKey = NULL;
+    }
+
+    if (NULL != pSymmetricKey)
+    {
+        HeapFree(GetProcessHeap(), 0, pSymmetricKey);
+        pSymmetricKey = NULL;
     }
 
     return dwRetVal;
