@@ -30,6 +30,7 @@ INT wmain(INT argc,  WCHAR *argv[])
     BCRYPT_ALG_HANDLE hProvider = NULL;
     BCRYPT_KEY_HANDLE hPublicKey = NULL;
     PBYTE pEncryptedRand = NULL;
+    PBYTE pRandBytes = NULL;
 
     if (argc != 3)
     {
@@ -129,12 +130,14 @@ INT wmain(INT argc,  WCHAR *argv[])
 
     WSABUF buf = {0};
     buf.len = RAND_SIZE;
-    buf.buf = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, RAND_SIZE);
-    if (NULL == buf.buf)
+    pRandBytes = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, RAND_SIZE);
+    if (NULL == pRandBytes)
     {
         wprintf(L"Error allocating memory\n");
         goto end;
     }
+
+    buf.buf = pRandBytes;
 
     DWORD dwBytesRecv = 0;
     DWORD dwFlags = 0;
@@ -146,7 +149,7 @@ INT wmain(INT argc,  WCHAR *argv[])
     wprintf(L"Random bytes unencrypted\n");
     for(int i = 0; i < dwBytesRecv; i++)
     {
-        wprintf(L"%02hhx", buf.buf[i]);
+        wprintf(L"%02hhx", pRandBytes[i]);
     }
 
     DWORD dwSizeNeeded = 0;
@@ -159,7 +162,7 @@ INT wmain(INT argc,  WCHAR *argv[])
      // Get the size of buffer required
     ntRetVal = BCryptEncrypt(
         hPublicKey,
-        buf.buf,
+        pRandBytes,
         RAND_SIZE,
         &padding,
         NULL,
@@ -181,7 +184,7 @@ INT wmain(INT argc,  WCHAR *argv[])
 
     ntRetVal = BCryptEncrypt(
         hPublicKey,
-        buf.buf,
+        pRandBytes,
         RAND_SIZE,
         &padding,
         NULL,
@@ -197,7 +200,7 @@ INT wmain(INT argc,  WCHAR *argv[])
     {
         wprintf(L"%02hhx", pEncryptedRand[i]);
     }
-    wprintf(L"WTF\n");
+
     // Free previous buffer with unencrypted random numbers
     if (NULL != buf.buf)
     {
@@ -212,6 +215,37 @@ INT wmain(INT argc,  WCHAR *argv[])
     WSASend(sock, &buf, 1, &dwBytesSent, 0, NULL, NULL);
     wprintf(L"\nBytes sent: %d\n", dwBytesSent);
 
+
+    // Generate a symmetric key, encrypt it with public key and send it back to server
+
+
 end:
+    if (INVALID_SOCKET != sock)
+    {
+        closesocket(sock);
+    }
+
+    if (NULL != hProvider)
+    {
+        BCryptCloseAlgorithmProvider(hProvider, 0);
+    }
+
+    if (NULL != hPublicKey)
+    {
+        BCryptDestroyKey(hPublicKey);
+    }
+
+    if (NULL != pRandBytes)
+    {
+        HeapFree(GetProcessHeap(), 0, pRandBytes);
+        pRandBytes = NULL;  
+    }
+
+    if (NULL != pEncryptedRand)
+    {
+        HeapFree(GetProcessHeap(), 0, pEncryptedRand);
+        pEncryptedRand = NULL;  
+    }
+
     return dwRetVal;
 }

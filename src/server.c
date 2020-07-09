@@ -28,14 +28,12 @@ INT wmain(INT argc,  WCHAR *argv[])
     HGLOBAL hResource = NULL;
     NTSTATUS ntRetVal = EXIT_SUCCESS;
     BCRYPT_ALG_HANDLE hProvider = NULL;
-    BCRYPT_ALG_HANDLE hRandProvider = NULL;
     DWORD dwResSize = 0;
     PBYTE pPrivateKey = NULL;
     BCRYPT_KEY_HANDLE hPrivateKey = NULL;
-    UCHAR pPlainText[256] = {0x00, 0x01, 0x02, 0x03};
-    PBYTE pEncryptedText = NULL;
     PBYTE pRand = NULL;
     PBYTE pDecryptedText = NULL;
+    PBYTE pCipherText = NULL;
 
     if (argc != 3)
     {
@@ -184,12 +182,14 @@ INT wmain(INT argc,  WCHAR *argv[])
     DWORD dwBytesRecv = 0;
     DWORD dwFlags = 0;
     buf.len = CIPHER_SIZE;
-    buf.buf = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, CIPHER_SIZE);
-    if (NULL == buf.buf)
+    pCipherText = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, CIPHER_SIZE);
+    if (NULL == pCipherText)
     {
         wprintf(L"Error allocating memory\n");
         goto end;
     }
+
+    buf.buf = pCipherText;
 
     WSARecv(conn, &buf, 1, &dwBytesRecv, &dwFlags, NULL, NULL);
 
@@ -209,7 +209,7 @@ INT wmain(INT argc,  WCHAR *argv[])
 
     ntRetVal = BCryptDecrypt(
         hPrivateKey,
-        buf.buf,
+        pCipherText,
         dwBytesRecv,
         &padding,
         NULL,
@@ -230,22 +230,22 @@ INT wmain(INT argc,  WCHAR *argv[])
         goto end;
     }
 
-DWORD dwBytesDecrypted = 0;
+    DWORD dwBytesDecrypted = 0;
 
-ntRetVal = BCryptDecrypt(
-    hPrivateKey,
-    buf.buf,
-    dwBytesRecv,
-    &padding,
-    NULL,
-    0,
-    pDecryptedText,
-    dwSizeNeeded,
-    &dwBytesDecrypted,
-    BCRYPT_PAD_OAEP
+    ntRetVal = BCryptDecrypt(
+        hPrivateKey,
+        pCipherText,
+        dwBytesRecv,
+        &padding,
+        NULL,
+        0,
+        pDecryptedText,
+        dwSizeNeeded,
+        &dwBytesDecrypted,
+        BCRYPT_PAD_OAEP
     );
 
-    wprintf(L"Decryptred Cipher text\n");
+    wprintf(L"Decrypted Cipher text\n");
     for(int i = 0; i < dwBytesDecrypted; i++)
     {
         wprintf(L"%02hhx", pDecryptedText[i]);
@@ -264,16 +264,46 @@ ntRetVal = BCryptDecrypt(
 
     if (FALSE == bDecryptionMatch)
     {
-        wprintf("\nKeys do not match\n");
+        wprintf(L"\nKeys do not match\n");
         goto end;
     }
 
+// TODO acknowlege successful verification
+
+// Wait for symmetric key to be sent over
 
 
 end:
-    if (sock != INVALID_SOCKET)
+    if (INVALID_SOCKET != sock)
     {
         closesocket(sock);
+    }
+
+    if (INVALID_SOCKET != conn)
+    {
+        closesocket(sock);
+    }
+
+    if (NULL != hProvider)
+    {
+        BCryptCloseAlgorithmProvider(hProvider, 0);
+    }
+
+    if (NULL != hPrivateKey)
+    {
+        BCryptDestroyKey(hPrivateKey);
+    }
+
+    if (NULL != pDecryptedText)
+    {
+        HeapFree(GetProcessHeap(), 0, pDecryptedText);
+        pDecryptedText = NULL;
+    }
+
+    if (NULL != pCipherText)
+    {
+        HeapFree(GetProcessHeap(), 0, pCipherText);
+        pCipherText = NULL;
     }
 
     return dwRetVal;
