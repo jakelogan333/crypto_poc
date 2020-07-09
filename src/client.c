@@ -16,6 +16,7 @@
 
 #define RAND_SIZE 128
 #define CIPHER_SIZE 256
+#define KEY_SIZE 16
 
 INT wmain(INT argc,  WCHAR *argv[])
 {
@@ -28,9 +29,13 @@ INT wmain(INT argc,  WCHAR *argv[])
     PBYTE pPublicKey = NULL;
     NTSTATUS ntRetVal = EXIT_SUCCESS;
     BCRYPT_ALG_HANDLE hProvider = NULL;
+    BCRYPT_ALG_HANDLE hSymmetricProvider = NULL;
+    BCRYPT_KEY_HANDLE hSymmetricKey = NULL;
     BCRYPT_KEY_HANDLE hPublicKey = NULL;
     PBYTE pEncryptedRand = NULL;
     PBYTE pRandBytes = NULL;
+    PBYTE pKeyObject = NULL;
+    PBYTE pRandKey = NULL;
 
     if (argc != 3)
     {
@@ -201,13 +206,6 @@ INT wmain(INT argc,  WCHAR *argv[])
         wprintf(L"%02hhx", pEncryptedRand[i]);
     }
 
-    // Free previous buffer with unencrypted random numbers
-    if (NULL != buf.buf)
-    {
-        HeapFree(GetProcessHeap(), 0, buf.buf);
-        buf.buf = NULL;
-    }
-
     buf.len = dwBytesEncrypted;
     buf.buf = pEncryptedRand;
     DWORD dwBytesSent = 0;
@@ -217,6 +215,75 @@ INT wmain(INT argc,  WCHAR *argv[])
 
 
     // Generate a symmetric key, encrypt it with public key and send it back to server
+    ntRetVal = BCryptOpenAlgorithmProvider(
+        &hSymmetricProvider,
+        BCRYPT_AES_ALGORITHM,
+        NULL,
+        0
+    );
+    
+    if (STATUS_SUCCESS != ntRetVal)
+    {
+        wprintf(L"Error opening symmetric algo\n");
+        goto end;
+    }
+
+    DWORD dwObjectLength = 0;
+    DWORD dwBytesCopied = 0;
+
+    ntRetVal = BCryptGetProperty(
+        hSymmetricProvider,
+        BCRYPT_OBJECT_LENGTH,
+        (PUCHAR) &dwObjectLength,
+        sizeof(DWORD),
+        &dwBytesCopied,
+        0
+    );
+
+    wprintf(L"Object Length: %d\n", dwObjectLength);
+
+    pKeyObject = HeapAlloc(GetAcceptLanguages, HEAP_ZERO_MEMORY, dwObjectLength);
+    if (NULL == pKeyObject)
+    {
+        wprintf(L"Error allocating memory\n");
+        goto end;
+    }
+
+    // Generate random key
+    pRandKey = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, RAND_SIZE);
+    if (NULL == pRandKey)
+    {
+        wprintf(L"Error allocating memory\n");
+        goto end;
+    }
+
+    ntRetVal = BCryptGenRandom(
+        NULL,
+        pRandKey,
+        KEY_SIZE,
+        BCRYPT_USE_SYSTEM_PREFERRED_RNG
+    );
+
+    ntRetVal = BCryptGenerateSymmetricKey(
+        hSymmetricProvider,
+        &hSymmetricKey,
+        pKeyObject,
+        dwObjectLength,
+        pRandKey,
+        KEY_SIZE,
+        0
+        );
+    
+    if (STATUS_SUCCESS != ntRetVal)
+    {
+        wprintf(L"Error creating symmetric key\n");
+        goto end;
+    }
+
+    // TODO Encrypt symmetric key and send to server
+    // TODO validate symmetric key works
+
+    
 
 
 end:
@@ -245,6 +312,22 @@ end:
     {
         HeapFree(GetProcessHeap(), 0, pEncryptedRand);
         pEncryptedRand = NULL;  
+    }
+
+    if (NULL != hSymmetricProvider)
+    {
+        BCryptCloseAlgorithmProvider(hSymmetricProvider, 0);
+    }
+
+    if (NULL != hSymmetricKey)
+    {
+        BCryptDestroyKey(hSymmetricKey);
+    }
+
+    if (NULL != pRandKey)
+    {
+        HeapFree(GetProcessHeap(), 0, pRandKey);
+        pRandKey = NULL;
     }
 
     return dwRetVal;

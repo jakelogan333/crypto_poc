@@ -270,7 +270,7 @@ INT wmain(INT argc,  WCHAR *argv[])
 
 // TODO acknowlege successful verification
 
-// Wait for symmetric key to be sent over
+// TODO Wait for symmetric key to be sent over
 
 
 end:
