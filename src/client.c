@@ -17,6 +17,7 @@
 #define RAND_SIZE 128
 #define CIPHER_SIZE 256
 #define KEY_SIZE 16
+#define VERIFICATION_SIZE 48
 
 INT wmain(INT argc,  WCHAR *argv[])
 {
@@ -37,6 +38,9 @@ INT wmain(INT argc,  WCHAR *argv[])
     PBYTE pKeyObject = NULL;
     PBYTE pRandKey = NULL;
     PBYTE pSymmetricKey = NULL;
+    PBYTE pEncryptedKey = NULL;
+    PBYTE pVerificationText = NULL;
+    PBYTE pDecryptedVerification = NULL;
 
     if (argc != 3)
     {
@@ -328,9 +332,120 @@ INT wmain(INT argc,  WCHAR *argv[])
         wprintf(L"%02hhx", pSymmetricKey[i]);
     }
     // TODO Encrypt symmetric key and send to server
-    // TODO validate symmetric key works
 
-    
+    // Get the size of buffer required
+    ntRetVal = BCryptEncrypt(
+        hPublicKey,
+        pSymmetricKey,
+        dwKeySize,
+        &padding,
+        NULL,
+        0,
+        NULL,
+        0,
+        &dwSizeNeeded,
+        BCRYPT_PAD_OAEP
+    );
+
+    wprintf(L"\nSize needed: %d\n", dwSizeNeeded);
+
+    pEncryptedKey = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, dwSizeNeeded);
+    if (NULL == pEncryptedRand)
+    {
+        wprintf(L"Error allocating memory\n");
+        goto end;
+    }
+
+    ntRetVal = BCryptEncrypt(
+        hPublicKey,
+        pSymmetricKey,
+        dwKeySize,
+        &padding,
+        NULL,
+        0,
+        pEncryptedKey,
+        dwSizeNeeded,
+        &dwBytesEncrypted,
+        BCRYPT_PAD_OAEP
+    );
+
+    wprintf(L"\nEncrypted key bytes\n");
+    for(int i = 0; i < dwBytesEncrypted; i++)
+    {
+        wprintf(L"%02hhx", pEncryptedKey[i]);
+    }
+
+    buf.buf = pEncryptedKey;
+    buf.len = dwSizeNeeded;
+
+    WSASend(sock, &buf, 1, &dwBytesSent, 0, NULL, NULL);
+    wprintf(L"\nBytes sent: %d\n", dwBytesSent);
+
+    HeapFree(GetProcessHeap(), 0, pEncryptedKey);
+    pEncryptedKey = NULL;
+
+    // TODO validate symmetric key works
+    pVerificationText = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, VERIFICATION_SIZE);
+    if (NULL == pVerificationText)
+    {
+        wprintf(L"Error allocating memory\n");
+        goto end;
+    }
+
+    buf.len = VERIFICATION_SIZE;
+    buf.buf = pVerificationText;
+    WSARecv(sock, &buf, 1, &dwBytesRecv, &dwFlags, NULL, NULL);
+
+    wprintf(L"\nEncrypted verificatoin bytes\n");
+    for(int i = 0; i < dwBytesRecv; i++)
+    {
+        wprintf(L"%02hhx", pVerificationText[i]);
+    }
+
+    // TODO decrypt verification text and strcmp
+     ntRetVal = BCryptDecrypt(
+        hSymmetricKey,
+        pVerificationText,
+        dwBytesRecv,
+        NULL,
+        NULL,
+        0,
+        NULL,
+        0,
+        &dwSizeNeeded,
+        BCRYPT_BLOCK_PADDING
+    );
+
+    wprintf(L"\nSize needed: %d:%u\n", dwSizeNeeded, ntRetVal);
+
+    DWORD dwBytesDecrypted = 0;
+    pDecryptedVerification = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, dwSizeNeeded);
+    if (NULL == pDecryptedVerification)
+    {
+        wprintf(L"Error allocating memory\n");
+        goto end;
+    }
+
+    ntRetVal = BCryptDecrypt(
+        hSymmetricKey,
+        pVerificationText,
+        dwBytesRecv,
+        NULL,
+        NULL,
+        0,
+        pDecryptedVerification,
+        dwSizeNeeded,
+        &dwBytesDecrypted,
+        BCRYPT_BLOCK_PADDING
+    );
+
+    if (STATUS_SUCCESS != ntRetVal)
+    {
+        wprintf(L"Error decrypting verification\n");
+        goto end;
+    }
+
+    wprintf(L"%s\n", (PWCHAR) pDecryptedVerification);
 
 
 end:

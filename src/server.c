@@ -28,12 +28,17 @@ INT wmain(INT argc,  WCHAR *argv[])
     HGLOBAL hResource = NULL;
     NTSTATUS ntRetVal = EXIT_SUCCESS;
     BCRYPT_ALG_HANDLE hProvider = NULL;
+    BCRYPT_ALG_HANDLE hSymmetricProvider = NULL;
     DWORD dwResSize = 0;
     PBYTE pPrivateKey = NULL;
     BCRYPT_KEY_HANDLE hPrivateKey = NULL;
+    BCRYPT_KEY_HANDLE hSymmetricKey = NULL;
     PBYTE pRand = NULL;
     PBYTE pDecryptedText = NULL;
+    PBYTE pDecryptedKey = NULL;
     PBYTE pCipherText = NULL;
+    PBYTE pEncryptedText = NULL;
+    PBYTE pKeyObject = NULL;
 
     if (argc != 3)
     {
@@ -245,6 +250,15 @@ INT wmain(INT argc,  WCHAR *argv[])
         BCRYPT_PAD_OAEP
     );
 
+    if (STATUS_SUCCESS != ntRetVal)
+    {
+        wprintf(L"Error decrypting rand bytes\n");
+        goto end;
+    }
+
+    HeapFree(GetProcessHeap(), 0, pCipherText);
+    pCipherText = NULL;
+
     wprintf(L"Decrypted Cipher text\n");
     for(int i = 0; i < dwBytesDecrypted; i++)
     {
@@ -268,9 +282,186 @@ INT wmain(INT argc,  WCHAR *argv[])
         goto end;
     }
 
+    HeapFree(GetProcessHeap(), 0, pDecryptedText);
+    pDecryptedText = NULL;
+
 // TODO acknowlege successful verification
 
 // TODO Wait for symmetric key to be sent over
+    buf.len = CIPHER_SIZE;
+    pCipherText = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, CIPHER_SIZE);
+    if (NULL == pCipherText)
+    {
+        wprintf(L"Error allocating memory\n");
+        goto end;
+    }
+
+    buf.buf = pCipherText;
+
+    WSARecv(conn, &buf, 1, &dwBytesRecv, &dwFlags, NULL, NULL);
+
+    wprintf(L"\nCipher bytes received: %d\n", dwBytesRecv);
+    wprintf(L"Cipher text\n");
+    for(int i = 0; i < CIPHER_SIZE; i++)
+    {
+        wprintf(L"%02hhx", buf.buf[i]);
+    }
+
+     ntRetVal = BCryptDecrypt(
+        hPrivateKey,
+        pCipherText,
+        dwBytesRecv,
+        &padding,
+        NULL,
+        0,
+        NULL,
+        0,
+        &dwSizeNeeded,
+        BCRYPT_PAD_OAEP
+    );
+
+    wprintf(L"\nSize needed: %d:%u\n", dwSizeNeeded, ntRetVal);
+
+
+    pDecryptedKey = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, dwSizeNeeded);
+    if (NULL == pDecryptedKey)
+    {
+        wprintf(L"Error allocating memory\n");
+        goto end;
+    }
+
+    ntRetVal = BCryptDecrypt(
+        hPrivateKey,
+        pCipherText,
+        dwBytesRecv,
+        &padding,
+        NULL,
+        0,
+        pDecryptedKey,
+        dwSizeNeeded,
+        &dwBytesDecrypted,
+        BCRYPT_PAD_OAEP
+    );
+
+    if (STATUS_SUCCESS != ntRetVal)
+    {
+        wprintf(L"Error decrypting rand bytes\n");
+        goto end;
+    }
+
+    wprintf(L"Decrypted symmetric key\n");
+    for(int i = 0; i < dwBytesDecrypted; i++)
+    {
+        wprintf(L"%02hhx", pDecryptedKey[i]);
+    }
+
+    HeapFree(GetProcessHeap(), 0, pCipherText);
+    pCipherText = NULL;
+
+    // Import key from decrypted blob
+    DWORD dwKeySize = 0;
+
+    ntRetVal = BCryptOpenAlgorithmProvider(
+        &hSymmetricProvider,
+        BCRYPT_AES_ALGORITHM,
+        NULL,
+        0
+    );
+
+    DWORD dwObjectLength = 0;
+    DWORD dwBytesCopied = 0;
+
+    ntRetVal = BCryptGetProperty(
+        hSymmetricProvider,
+        BCRYPT_OBJECT_LENGTH,
+        (PUCHAR) &dwObjectLength,
+        sizeof(DWORD),
+        &dwBytesCopied,
+        0
+    );
+
+    wprintf(L"\nObject Length: %d\n", dwObjectLength);
+
+    pKeyObject = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, dwObjectLength);
+    if (NULL == pKeyObject)
+    {
+        wprintf(L"Error allocating memory\n");
+        goto end;
+    }
+
+    ntRetVal = BCryptImportKey(
+        hSymmetricProvider,
+        NULL,
+        BCRYPT_KEY_DATA_BLOB,
+        &hSymmetricKey,
+        pKeyObject,
+        dwObjectLength,
+        pDecryptedKey,
+        dwBytesDecrypted,
+        0
+    );
+
+    if (STATUS_SUCCESS != ntRetVal)
+    {
+        wprintf(L"Error importing symmetric key\n");
+        goto end;
+    }
+
+    WCHAR exchangebuf[] = L"Key exchange complete\0";
+
+    // Get the size of buffer required
+    ntRetVal = BCryptEncrypt(
+        hSymmetricKey,
+        (PUCHAR) exchangebuf,
+        sizeof(exchangebuf),
+        NULL,
+        NULL,
+        0,
+        NULL,
+        0,
+        &dwSizeNeeded,
+        BCRYPT_BLOCK_PADDING
+    );
+
+    wprintf(L"\nSize needed: %d\n", dwSizeNeeded);
+
+    pEncryptedText = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, dwSizeNeeded);
+    if (NULL == pEncryptedText)
+    {
+        wprintf(L"Error allocating memory\n");
+        goto end;
+    }
+
+    ntRetVal = BCryptEncrypt(
+        hSymmetricKey,
+        (PUCHAR) exchangebuf,
+        sizeof(exchangebuf),
+        NULL,
+        NULL,
+        0,
+        pEncryptedText,
+        dwSizeNeeded,
+        &dwBytesEncrypted,
+        BCRYPT_BLOCK_PADDING
+    );
+
+    if (STATUS_SUCCESS != ntRetVal)
+    {
+        wprintf(L"Error encrypting verification: %u\n", ntRetVal);
+        goto end;
+    }
+
+    wprintf(L"\nEncrypted verification bytes\n");
+    for(int i = 0; i < dwBytesEncrypted; i++)
+    {
+        wprintf(L"%02hhx", pEncryptedText[i]);
+    }
+
+    buf.len = dwBytesEncrypted;
+    buf.buf = pEncryptedText;
+
+    WSASend(conn, &buf, 1, &dwBytesSent, 0, NULL, NULL);
+
 
 
 end:
@@ -304,6 +495,12 @@ end:
     {
         HeapFree(GetProcessHeap(), 0, pCipherText);
         pCipherText = NULL;
+    }
+
+    if (NULL != pDecryptedKey)
+    {
+        HeapFree(GetProcessHeap(), 0, pDecryptedKey);
+        pDecryptedKey = NULL;
     }
 
     return dwRetVal;
