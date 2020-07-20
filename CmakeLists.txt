@@ -2,7 +2,7 @@ CMAKE_MINIMUM_REQUIRED(VERSION 3.16)
 
 PROJECT(crypto LANGUAGES C)
 
-add_definitions(-DUNICODE)
+add_definitions(-DUNICODE -DDEBUG)
 
 set(KEYGEN_SOURCES
     src/keygen.c
@@ -20,6 +20,12 @@ set(SERVER_SOURCES
     include/server_resource.h
 )
 
+set(CRYPTO_SOURCES
+    src/crypto_comms.c
+    include/crypto_comms.h
+    include/debug.h
+)
+
 add_executable(keygen
    ${KEYGEN_SOURCES}
 )
@@ -32,6 +38,10 @@ add_executable(server
    ${SERVER_SOURCES}
 )
 
+add_library(crypto_comms
+    ${CRYPTO_SOURCES}
+)
+
 include_directories(include)
-target_link_libraries(client ws2_32 Shlwapi)
-target_link_libraries(server ws2_32 Shlwapi)
+target_link_libraries(client ws2_32 Shlwapi crypto_comms)
+target_link_libraries(server ws2_32 Shlwapi crypto_comms)
