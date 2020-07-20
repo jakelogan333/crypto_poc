@@ -9,12 +9,19 @@
 
 #include <bcrypt.h>
 #include <ntstatus.h>
+#include <WinSock2.h>
 
 typedef struct crypto_data
 {
     PBYTE pData;
     DWORD dwDataSize;
 } CRYPTO_DATA, *PCRYPTO_DATA;
+
+enum CRYPTO_ERRORS
+{
+    CRYPTO_SUCCESS = 0,
+    CRYPTO_FAILURE = 1
+};
 
 NTSTATUS CryptoDecrypt(
     BCRYPT_KEY_HANDLE hKey,
@@ -37,5 +44,8 @@ NTSTATUS CryptoEncrypt(
     DWORD dwFlags,
     PCRYPTO_DATA *data
 );
+
+DWORD CryptoInitiateKeyExchange(SOCKET conn);
+DWORD CryptoValidateKeyExchange(SOCKET conn);
 
 #endif

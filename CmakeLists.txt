@@ -43,5 +43,6 @@ add_library(crypto_comms
 )
 
 include_directories(include)
-target_link_libraries(client ws2_32 Shlwapi crypto_comms)
-target_link_libraries(server ws2_32 Shlwapi crypto_comms)
+target_link_libraries(crypto_comms bcrypt)
+target_link_libraries(client ws2_32 Shlwapi crypto_comms bcrypt)
+target_link_libraries(server ws2_32 Shlwapi crypto_comms bcrypt)

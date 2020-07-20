@@ -105,15 +105,14 @@ NTSTATUS CryptoEncrypt(
     NTSTATUS ntRetVal = STATUS_UNSUCCESSFUL;
     DWORD dwSizeNeeded = 0;
     
-    // Shorten our pointer references for ease of reading
     *pCryptoData = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(CRYPTO_DATA));
 
-    if (NULL == pCryptoData)
+    if (NULL == *pCryptoData)
     {
         goto end;
     }
 
-        // Get the size of buffer required
+    // Get the size of buffer required
     ntRetVal = BCryptEncrypt(
         hKey,
         pPlainText,
@@ -175,4 +174,21 @@ VOID CryptoPrintBytes(DWORD dwSize, LPWSTR pTitle, PBYTE pBytes)
         wprintf(L"%02hhx", pBytes[i]);
     }
     wprintf(L"\n");
+}
+
+
+DWORD CryptoInitiateKeyExchange(SOCKET conn)
+{
+    DWORD dwRetVal = CRYPTO_FAILURE;
+
+end:
+    return dwRetVal;
+}
+
+DWORD CryptoValidateKeyExchange(SOCKET conn)
+{
+    DWORD dwRetVal = CRYPTO_FAILURE;
+
+end:
+    return dwRetVal;
 }
