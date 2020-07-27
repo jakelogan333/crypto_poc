@@ -11,16 +11,28 @@
 #include <ntstatus.h>
 #include <WinSock2.h>
 
+#define RAND_BYTES_SIZE 128
+#define SECRET_SIZE 16
+#define VERIFICATION_SIZE 48
+
 typedef struct crypto_data
 {
     PBYTE pData;
     DWORD dwDataSize;
 } CRYPTO_DATA, *PCRYPTO_DATA;
 
+typedef struct crypto_comms
+{
+    LPWSTR pAddress;
+    WORD wPort;
+    SOCKET sock;
+} CRYPTO_COMMS, *PCRYPTO_COMMS;
+
 enum CRYPTO_ERRORS
 {
-    CRYPTO_SUCCESS = 0,
-    CRYPTO_FAILURE = 1
+    CRYPTO_SUCCESS,
+    CRYPTO_FAILURE,
+    CRYPTO_SOCKET_ERROR
 };
 
 NTSTATUS CryptoDecrypt(
@@ -45,7 +57,8 @@ NTSTATUS CryptoEncrypt(
     PCRYPTO_DATA *data
 );
 
-DWORD CryptoInitiateKeyExchange(SOCKET conn);
-DWORD CryptoValidateKeyExchange(SOCKET conn);
+DWORD CryptoInitiateKeyExchange(PCRYPTO_COMMS pConnInfo, BCRYPT_KEY_HANDLE hPublicKey);
+DWORD CryptoValidateKeyExchange(PCRYPTO_COMMS pConnInfo);
+DWORD CryptoGenerateSymmetricKey(LPCWSTR pAlgorithm, LPCWSTR pImplementation, BCRYPT_KEY_HANDLE *hSymmetricKey, PCRYPTO_DATA *data);
 
 #endif
