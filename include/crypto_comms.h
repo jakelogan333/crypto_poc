@@ -14,6 +14,8 @@
 #define RAND_BYTES_SIZE 128
 #define SECRET_SIZE 16
 #define VERIFICATION_SIZE 48
+#define RSA_KEY_SIZE 2048
+#define CIPHERTEXT_SIZE RSA_KEY_SIZE / 8
 
 typedef struct crypto_data
 {
@@ -58,7 +60,9 @@ NTSTATUS CryptoEncrypt(
 );
 
 DWORD CryptoInitiateKeyExchange(PCRYPTO_COMMS pConnInfo, BCRYPT_KEY_HANDLE hPublicKey);
-DWORD CryptoValidateKeyExchange(PCRYPTO_COMMS pConnInfo);
+DWORD CryptoValidateKeyExchange(PCRYPTO_COMMS pConnInfo, BCRYPT_KEY_HANDLE hPrivateKey);
 DWORD CryptoGenerateSymmetricKey(LPCWSTR pAlgorithm, LPCWSTR pImplementation, BCRYPT_KEY_HANDLE *hSymmetricKey, PCRYPTO_DATA *data);
+BOOL CryptoCompareBytes(PBYTE pOriginal, DWORD dwOrigSize, PBYTE pCompare, DWORD dwCompareSize);
+DWORD CryptoImportKeyFromBlob(LPCWSTR pAlgorithm, LPCWSTR pImplementation, BCRYPT_KEY_HANDLE *hKey, PCRYPTO_DATA pKey);
 
 #endif

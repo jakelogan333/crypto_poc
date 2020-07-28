@@ -14,11 +14,6 @@
 #include <crypto_comms.h>
 #include <debug.h>
 
-#define RAND_SIZE 128
-#define CIPHER_SIZE 256
-#define KEY_SIZE 16
-#define VERIFICATION_SIZE 48
-
 INT wmain(INT argc,  WCHAR *argv[])
 {
     DWORD dwRetVal = EXIT_SUCCESS;
@@ -110,13 +105,13 @@ INT wmain(INT argc,  WCHAR *argv[])
         goto end;
     }
 
-    CRYPTO_COMMS pConnInfo = {0};
-    pConnInfo.pAddress = argv[1];
-    pConnInfo.wPort = (WORD) dwPort;
+    CRYPTO_COMMS ConnInfo = {0};
+    ConnInfo.pAddress = argv[1];
+    ConnInfo.wPort = (WORD) dwPort;
 
-    // TODO pass address of symmetric key and key object so it can be gracefully
+    // TODO pass address of symmetric key and key object so it can be used and gracefully
     // destroyed upon completion
-    CryptoInitiateKeyExchange(&pConnInfo, hPublicKey);
+    CryptoInitiateKeyExchange(&ConnInfo, hPublicKey);
 
 
 end:
